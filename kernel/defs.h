@@ -86,30 +86,29 @@ void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
 
 // proc.c
-int             cpuid(void);
-void            exit(int);
-int             fork(void);
-int             growproc(int);
-pagetable_t     proc_pagetable(struct proc *);
-pagetable_t     proc_kernelpagetable_init(struct proc *);
-void            proc_freepagetable(pagetable_t, uint64);
-void            proc_freekernelpagetable(pagetable_t);
-int             kill(int);
-struct cpu*     mycpu(void);
-struct cpu*     getmycpu(void);
-struct proc*    myproc();
-void            procinit(void);
-void            scheduler(void) __attribute__((noreturn));
-void            sched(void);
-void            setproc(struct proc*);
-void            sleep(void*, struct spinlock*);
-void            userinit(void);
-int             wait(uint64);
-void            wakeup(void*);
-void            yield(void);
-int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
-int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
-void            procdump(void);
+int cpuid(void);
+void exit(int);
+int fork(void);
+int growproc(int);
+pagetable_t proc_pagetable(struct proc *);
+void proc_freepagetable(pagetable_t, uint64);
+void proc_freekpt(pagetable_t);
+int kill(int);
+struct cpu *mycpu(void);
+struct cpu *getmycpu(void);
+struct proc *myproc();
+void procinit(void);
+void scheduler(void) __attribute__((noreturn));
+void sched(void);
+void setproc(struct proc *);
+void sleep(void *, struct spinlock *);
+void userinit(void);
+int wait(uint64);
+void wakeup(void *);
+void yield(void);
+int either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
+int either_copyin(void *dst, int user_src, uint64 src, uint64 len);
+void procdump(void);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -161,6 +160,7 @@ int             uartgetc(void);
 
 // vm.c
 void kvminit(void);
+pagetable_t proc_kvminit(void);
 void kvminithart(void);
 uint64 kvmpa(uint64);
 void kvmmap(uint64, uint64, uint64, int);
@@ -174,6 +174,7 @@ uint64 uvmdealloc(pagetable_t, uint64, uint64);
 #else
 int uvmcopy(pagetable_t, pagetable_t, uint64);
 #endif
+void uvm2kvm(pagetable_t, pagetable_t, uint64, uint64);
 void uvmfree(pagetable_t, uint64);
 void uvmunmap(pagetable_t, uint64, uint64, int);
 void uvmclear(pagetable_t, uint64);
@@ -184,6 +185,9 @@ int copyin(pagetable_t, char *, uint64, uint64);
 int copyinstr(pagetable_t, char *, uint64, uint64);
 void vmprint(pagetable_t);
 
+// vmcopyin.c
+int copyin_new(pagetable_t, char *, uint64, uint64);
+int copyinstr_new(pagetable_t, char *, uint64, uint64);
 
 // plic.c
 void            plicinit(void);

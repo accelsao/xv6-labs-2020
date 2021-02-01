@@ -49,11 +49,44 @@ kvminit()
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
+pagetable_t proc_kvminit() {
+
+  pagetable_t kpagetable;
+
+  kpagetable = uvmcreate();
+  if (kpagetable == 0)
+    return 0;
+
+  // uart registers
+  ukvmmap(kpagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  ukvmmap(kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  ukvmmap(kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  ukvmmap(kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  ukvmmap(kpagetable, KERNBASE, KERNBASE, (uint64)etext - KERNBASE,
+          PTE_R | PTE_X);
+
+  // map kernel data and the physical RAM we'll make use of.
+  ukvmmap(kpagetable, (uint64)etext, (uint64)etext, PHYSTOP - (uint64)etext,
+          PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  ukvmmap(kpagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  return kpagetable;
+}
+
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
-void
-kvminithart()
-{
+void kvminithart() {
   w_satp(MAKE_SATP(kernel_pagetable));
   sfence_vma();
 }
@@ -130,24 +163,42 @@ ukvmmap(pagetable_t pt, uint64 va, uint64 pa, uint64 sz, int perm)
     panic("ukvmmap");
 }
 
+void uvm2kvm(pagetable_t uvm, pagetable_t kvm, uint64 old_sz, uint64 sz) {
+  // printf("old_sz: %d new_sz: %d, PLICL: %d\n", old_sz, new_sz, PLIC);
+
+  if (sz < old_sz)
+    return;
+
+  pte_t *pte_from, *pte_to;
+
+  for (int i = PGROUNDUP(old_sz); i < sz; i += PGSIZE) {
+    if ((pte_from = walk(uvm, i, 0)) == 0) {
+      panic("uvm2kvm: pte should exists");
+    }
+    if ((pte_to = walk(kvm, i, 1)) == 0) {
+      panic("uvm2kvm: walk");
+    }
+    uint64 pa = PTE2PA(*pte_from);
+    *pte_to = PA2PTE(pa) | (PTE_FLAGS(*pte_from) & (~PTE_U));
+  }
+}
+
 // translate a kernel virtual address to
 // a physical address. only needed for
 // addresses on the stack.
 // assumes va is page aligned.
-uint64
-kvmpa(uint64 va)
-{
+uint64 kvmpa(uint64 va) {
   uint64 off = va % PGSIZE;
   pte_t *pte;
   uint64 pa;
-  
-  pte = walk(myproc()->kernel_pagetable, va, 0);
-  if(pte == 0)
+
+  pte = walk(myproc()->kpagetable, va, 0);
+  if (pte == 0)
     panic("kvmpa");
-  if((*pte & PTE_V) == 0)
+  if ((*pte & PTE_V) == 0)
     panic("kvmpa");
   pa = PTE2PA(*pte);
-  return pa+off;
+  return pa + off;
 }
 
 // Create PTEs for virtual addresses starting at va that refer to
@@ -385,69 +436,16 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
-int
-copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
-{
-  uint64 n, va0, pa0;
-
-  while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
-
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
-  return 0;
+int copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len) {
+  return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
 // Copy bytes to dst from virtual address srcva in a given page table,
 // until a '\0', or max.
 // Return 0 on success, -1 on error.
-int
-copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
-{
-  uint64 n, va0, pa0;
-  int got_null = 0;
-
-  while(got_null == 0 && max > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > max)
-      n = max;
-
-    char *p = (char *) (pa0 + (srcva - va0));
-    while(n > 0){
-      if(*p == '\0'){
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
-
-    srcva = va0 + PGSIZE;
-  }
-  if(got_null){
-    return 0;
-  } else {
-    return -1;
-  }
+int copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max) {
+  return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 void vmprint_(pagetable_t pagetable, int level) {
