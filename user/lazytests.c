@@ -80,6 +80,7 @@ oom(char *s)
   int pid;
 
   if((pid = fork()) == 0){
+    
     m1 = 0;
     while((m2 = malloc(4096*4096)) != 0){
       *(char**)m2 = m1;

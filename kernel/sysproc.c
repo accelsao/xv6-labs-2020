@@ -38,17 +38,16 @@ sys_wait(void)
   return wait(p);
 }
 
-uint64
-sys_sbrk(void)
-{
-  int addr;
+uint64 sys_sbrk(void) {
+  uint64 addr;
   int n;
-
-  if(argint(0, &n) < 0)
+  if (argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+  myproc()->sz = addr + n;
+  if (n < 0) {
+    uvmdealloc(myproc()->pagetable, addr, myproc()->sz);
+  }
   return addr;
 }
 
