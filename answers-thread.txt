@@ -1,0 +1,2 @@
+q1. thread_switch needs to save/restore only the callee-save registers, why?
+a1. switch is called by c code, so caller-save registers are included, we just need to save the callee-save registers
